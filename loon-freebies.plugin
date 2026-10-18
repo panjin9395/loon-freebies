@@ -1,5 +1,5 @@
-#!name = Epic限时免费与App关注 v1.0.0
-#!desc = 每日12:10（设备时区）检查Epic中国区当前限免；App仅自选关注，不是全站限免。无需MITM或Cookie，不自动领取。手动预览不写去重。
+#!name = Epic限免·Steam线索·App关注 v1.1.0
+#!desc = 每日12:10同批检查；Epic正式限免提醒，Steam仅官方CN价格待核实线索（手动预览），未接通可靠永久入库自动提醒。试玩/F2P/demo不推；App自选关注。无需MITM/Cookie，不自动领取。
 #!author = panjin9395
 #!homepage = https://github.com/panjin9395/loon-freebies
 #!date = 2026-10-18
@@ -7,9 +7,10 @@
 
 [Argument]
 trackIds = input,"",tag=App关注ID,desc=默认空；数字ID用英文逗号分隔，最多100个，仅保存在本机
-country = select,"cn","us","hk","tw","jp","gb",tag=App商店区域,desc=仅监测所选商店，不混价；Epic固定中国区
-expiry = switch,true,tag=截止提醒,desc=每日检查时距截止不足24小时额外提醒至多一次
+country = select,"cn","us","hk","tw","jp","gb",tag=App商店区域,desc=仅监测所选商店，不混价；Epic与Steam固定中国区
+steamIds = input,"",tag=Steam线索关注ID,desc=默认空；最多3个数字AppID逗号分隔；100%折扣仅手动待核实，不代表永久入库
+expiry = switch,true,tag=截止提醒,desc=仅已验证Epic活动每日检查时距截止不足24小时额外提醒至多一次
 
 [Script]
-cron "10 12 * * *" script-path=https://raw.githubusercontent.com/panjin9395/loon-freebies/main/freebies.js,timeout=60,tag=每日限免检查,argument=[{trackIds},{country},{expiry}]
+cron "10 12 * * *" script-path=https://raw.githubusercontent.com/panjin9395/loon-freebies/main/freebies.js,timeout=60,tag=每日限免检查,argument=[{trackIds},{country},{steamIds},{expiry}]
 generic script-path=https://raw.githubusercontent.com/panjin9395/loon-freebies/main/freebies.js,timeout=60,tag=手动预览不写去重,argument="preview"

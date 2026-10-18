@@ -1,4 +1,4 @@
-/* loon-freebies v1.0.0 | Public official APIs only | MIT */
+/* loon-freebies v1.1.0 | Public official APIs only | MIT */
 var Freebies = (function () {
   'use strict';
   function beijing(ms) { return new Date(ms + 8 * 3600000).toISOString().slice(0,16).replace('T',' '); }
@@ -45,16 +45,42 @@ var Freebies = (function () {
     });
     return {prices:prices,alerts:alerts};
   }
-  return {epic:epic,beijing:beijing,apple:apple};
+  // No public official global Free-to-Keep feed exists. Search/price are leads only.
+  var steamSearch='https://store.steampowered.com/search/results/?start=0&count=20&specials=1&maxprice=free&category1=998&cc=cn&l=english&json=1';
+  function steamCandidates(data, watch) {
+    if (!data || !Array.isArray(data.items)) throw new Error('Steam 搜索结构异常');
+    var ids=String(watch||'').trim()?String(watch).trim().split(/[\s,;]+/):[];
+    if(ids.length>3 || ids.some(function(id){return !/^[1-9][0-9]{0,9}$/.test(id);})) throw new Error('Steam 关注ID无效（最多3个）');
+    data.items.slice(0,20).forEach(function(item){
+      if (!item || typeof item.id!=='number' || !Number.isSafeInteger(item.id) || item.id<=0 || item.type!=='app') return;
+      var id=String(item.id);if(ids.indexOf(id)<0 && ids.length<3)ids.push(id);
+    });
+    return ids.filter(function(id,i,a){return a.indexOf(id)===i;});
+  }
+  function steam(data,id,now) {
+    if(!/^[1-9][0-9]{0,9}$/.test(id) || !Number.isFinite(now) || !data || !data[id] || typeof data[id].success!=='boolean') throw new Error('Steam 商品结构异常');
+    var out={id:'steam:'+id,status:'unavailable',notify:false,start:null,end:null,url:'https://store.steampowered.com/app/'+id+'/?cc=cn&l=english'};
+    if(!data[id].success)return out;
+    var a=data[id].data;
+    if(!a || a.steam_appid!==Number(id) || typeof a.name!=='string' || typeof a.type!=='string' || typeof a.is_free!=='boolean')throw new Error('Steam 商品结构异常');
+    out.title=a.name;out.status='excluded';
+    if(a.type!=='game' || a.is_free || /demo|trial|free weekend|play for free|试玩|试用|体验版/i.test(a.name))return out;
+    var p=a.price_overview;
+    if(!p)return out;
+    if(p.currency!=='CNY' || !Number.isSafeInteger(p.initial) || !Number.isSafeInteger(p.final) || p.initial<0 || p.final<0 || !Number.isInteger(p.discount_percent) || p.discount_percent<0 || p.discount_percent>100)throw new Error('Steam 价格/币种无效');
+    if(p.initial>0 && p.final===0 && p.discount_percent===100)out.status='unverified';
+    return out;
+  }
+  return {epic:epic,beijing:beijing,apple:apple,steam:steam,steamCandidates:steamCandidates,steamSearch:steamSearch};
 }());
 
 if (typeof FREEBIES_TEST === 'undefined') {
   (async function () {
     'use strict';
     var KEY='loon.freebies.v1', state, preview=false;
-    function notify(title,body,url) { $notification.post(title,'独立限免插件 v1.0.0',body,url?{openUrl:url}:{}); }
+    function notify(title,body,url) { $notification.post(title,'独立限免插件 v1.1.0',body,url?{openUrl:url}:{}); }
     function save(s) { var raw=JSON.stringify(s);if (!$persistentStore.write(raw,KEY) || $persistentStore.read(KEY)!==raw) throw new Error('持久缓存写入/回读失败；未完成去重'); }
-    function get(url) { return new Promise(function(resolve,reject){$httpClient.get({url:url,timeout:20000,'auto-cookie':false,'auto-redirect':false,headers:{Accept:'application/json'}},function(err,res,body){try{if(err || !res || Number(res.status)!==200) throw new Error('官方接口请求失败 '+(err||res&&res.status));if(typeof body!=='string' || body.length>3000000) throw new Error('响应无效');resolve(JSON.parse(body));}catch(e){reject(e);}});}); }
+    function get(url) { return new Promise(function(resolve,reject){$httpClient.get({url:url,timeout:20000,'auto-cookie':false,'auto-redirect':false,headers:{Accept:'application/json'}},function(err,res,body){try{if(err || !res || Number(res.status)!==200) throw new Error('官方接口请求失败（网络/HTTP状态）');if(typeof body!=='string' || body.length>3000000) throw new Error('响应无效');try{resolve(JSON.parse(body));}catch(ignore){throw new Error('官方接口 JSON 结构异常');}}catch(e){reject(e);}});}); }
     try {
       var arg=typeof $argument==='undefined'?{}:$argument;
       if (arg==='preview') arg={preview:true};
@@ -68,8 +94,15 @@ if (typeof FREEBIES_TEST === 'undefined') {
         if (state.lastDay===day || state.lease>now) return;
         state.lease=now+180000;save(state);
       }
+      var failed=false, count=0;
+      // Parallel platform workers: a slow/broken Steam request never gates Epic.
+      function worker(name,fn) { return Promise.resolve().then(fn).catch(function(e){
+        if(/持久/.test(e.message)) throw e;
+        failed=true;notify((preview?'【预览】':'')+name+' 检查失败',e.message+'；该平台状态未知，保留已有记录。');
+      }); }
+      await Promise.all([worker('Epic',async function(){
       var data=await get('https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=zh-CN&country=CN&allowCountries=CN');
-      var offers=Freebies.epic(data,now), count=0;
+      var offers=Freebies.epic(data,now);
       offers.active.forEach(function(g){
         var id=g.id+'|'+g.start+'|'+g.end, prev=state.sent[id];
         var exp=g.end-now<=24*3600000 && arg.expiry!==false && arg.expiry!=='false';
@@ -79,6 +112,24 @@ if (typeof FREEBIES_TEST === 'undefined') {
           if(!preview) {state.sent[id]={end:g.end,expiry:exp};save(state);}
         }
       });
+      if(preview && offers.active.length===0)notify('【预览】Epic 检查完成','Epic：0 个符合条件的当前限免；下期预告 '+offers.upcoming.length+' 个（默认不推）；不是领取结果。');
+      }),worker('Steam',async function(){
+        var search, searchFailed=false;
+        try { search=await get(Freebies.steamSearch);Freebies.steamCandidates(search,''); }
+        catch(e){searchFailed=true;search={items:[]};}
+        var candidates=Freebies.steamCandidates(search,arg.steamIds), leads=[],checked=0;
+        // One bounded batch, at most 3 parallel app requests; no full-store scan.
+        await Promise.all(candidates.map(async function(id){
+          var data=await get('https://store.steampowered.com/api/appdetails?appids='+id+'&cc=cn&l=english');
+          var item=Freebies.steam(data,id,now);checked++;
+          if(item.status==='unverified')leads.push(item);
+        }));
+        if(preview) {
+          leads.forEach(function(g){notify('【预览】Steam 待核实线索（非限免确认）',g.title+'\nCN/CNY 官方价100%折扣；尚无可验证永久入库及促销起止证据。\n截止北京时间：未知；请打开官方页面人工核实。非自动领取、非正式推送。',g.url);});
+          notify('【预览】Steam 受限线索检查','官方搜索'+(searchFailed?'失败':'结构有效')+'；已检查 '+checked+' 个候选，待核实 '+leads.length+' 个。\n未接通可靠自动永久入库提醒；不保证全量。免费周末试玩/F2P/demo不推，未确认窗口不生成截止或去重。');
+        }
+        if(searchFailed)throw new Error('官方搜索请求/结构失败；Steam 非全量且状态未知');
+      }),worker('App',async function(){
       var watch=String(arg.trackIds||'').trim(), country=String(arg.country||'cn');
       var ids=watch?watch.split(/[\s,;]+/):[];
       if(ids.length>100 || ids.some(function(id){return !/^[1-9][0-9]{0,14}$/.test(id);}) || ['cn','us','hk','tw','jp','gb'].indexOf(country)<0) throw new Error('App 关注 ID/区域无效（最多100个）');
@@ -90,8 +141,8 @@ if (typeof FREEBIES_TEST === 'undefined') {
         if(!preview){state.apple=apps.prices;save(state);}
         if(preview && apps.alerts.length===0) notify('【预览】App 关注检查完成','指定 '+ids.length+' 个，返回 '+lookup.resultCount+' 个；无已观察付费→0变化。首次0价仅建基线；本预览不写入基线。');
       }
-      if(preview && count===0) notify('【预览】检查完成','Epic：0 个符合条件的当前限免；不是领取结果。下期免费预告 '+offers.upcoming.length+' 个（默认不推）；App 关注名单默认空。');
-      if(!preview) {Object.keys(state.sent).forEach(function(k){if(state.sent[k].end<now-30*86400000)delete state.sent[k];});state.lastDay=day;state.lease=0;save(state);}
+      })]);
+      if(!preview) {Object.keys(state.sent).forEach(function(k){if(state.sent[k].end<now-30*86400000)delete state.sent[k];});if(!failed)state.lastDay=day;state.lease=0;save(state);}
     } catch(e) {
       console.log('loon-freebies: '+e.message);
       try { if(state && !preview) {state.lease=0;save(state);} } catch(ignore) {}

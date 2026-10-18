@@ -1,1 +1,1 @@
-{"name":"loon-freebies","version":"1.0.0","private":true,"scripts":{"test":"node --test tests/runtime.cjs","live":"node tools/live.cjs"},"license":"MIT","engines":{"node":">=18"}}
+{"name":"loon-freebies","version":"1.1.0","private":true,"scripts":{"test":"node --test tests/runtime.cjs tests/steam.cjs tests/steam-runtime.cjs","live":"node tools/live.cjs"},"license":"MIT","engines":{"node":">=18"}}
