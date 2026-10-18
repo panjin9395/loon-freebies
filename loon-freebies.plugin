@@ -1,0 +1,15 @@
+#!name = Epic限时免费与App关注 v1.0.0
+#!desc = 每日12:10（设备时区）检查Epic中国区当前限免；App仅自选关注，不是全站限免。无需MITM或Cookie，不自动领取。手动预览不写去重。
+#!author = panjin9395
+#!homepage = https://github.com/panjin9395/loon-freebies
+#!date = 2026-10-18
+#!tag = Freebies,Tools
+
+[Argument]
+trackIds = input,"",tag=App关注ID,desc=默认空；数字ID用英文逗号分隔，最多100个，仅保存在本机
+country = select,"cn","us","hk","tw","jp","gb",tag=App商店区域,desc=仅监测所选商店，不混价；Epic固定中国区
+expiry = switch,true,tag=截止提醒,desc=每日检查时距截止不足24小时额外提醒至多一次
+
+[Script]
+cron "10 12 * * *" script-path=https://raw.githubusercontent.com/panjin9395/loon-freebies/main/freebies.js,timeout=60,tag=每日限免检查,argument=[{trackIds},{country},{expiry}]
+generic script-path=https://raw.githubusercontent.com/panjin9395/loon-freebies/main/freebies.js,timeout=60,tag=手动预览不写去重,argument="preview"
